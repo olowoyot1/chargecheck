@@ -21,7 +21,7 @@ export default function Home() {
       let rows: Record<string, unknown>[] = [];
       if (ext === "csv") {
         const text = await file.text();
-        const result = Papa.parse<Record<string, unknown>>(text, { header: true, skipEmptyLines: true, dynamicTyping: true });
+        const result = Papa.parse<Record<string, unknown>>(text.replace(/^\uFEFF/, ""), { header: true, skipEmptyLines: true, dynamicTyping: true, delimiter: "" });
         if (result.errors.length) throw new Error(result.errors[0].message);
         rows = result.data;
       } else if (ext === "xlsx" || ext === "xls") {
@@ -37,10 +37,21 @@ export default function Home() {
         for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
           const page = await pdf.getPage(pageNo);
           const content = await page.getTextContent();
-          const parts = content.items.map((item: unknown) => "str" in (item as object) ? String((item as {str:string}).str) : "").filter(Boolean);
+          const parts = content.items.map((item: unknown) => "str" in (item as object) ? String((item as {str:string}).str).trim() : "").filter(Boolean);
           lines.push(...parts);
         }
-        throw new Error(lines.length ? "This PDF contains text, but its bank-specific layout needs a matching parser. Please export the statement as CSV or Excel for this first release." : "This appears to be a scanned PDF. Please export it as CSV or Excel; scanned PDF/OCR is not supported yet.");
+        const datePattern = /^(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}|\d{4}[\/.-]\d{1,2}[\/.-]\d{1,2})\b/;
+        const moneyPattern = /(?:₦|[$£€])?\(?-?\d[\d,]*(?:\.\d{2})?\)?/g;
+        rows = lines.flatMap(line => {
+          const dateMatch = line.match(datePattern);
+          if (!dateMatch) return [];
+          const amounts = line.match(moneyPattern) ?? [];
+          const values = amounts.map(value => value.replace(/[₦$£€,()\s]/g, "")).filter(value => value && /\d/.test(value));
+          const description = line.slice(dateMatch[0].length).replace(moneyPattern, " ").replace(/\s+/g, " ").trim();
+          if (!description && !values.length) return [];
+          return [{ date: dateMatch[1], description, debit: values[0] ?? "", credit: values[1] ?? "" }];
+        });
+        if (!rows.length) throw new Error(lines.length ? "This PDF has a layout we could not read. Please export it as CSV or Excel, or use a text-based PDF with each transaction on one line." : "This appears to be a scanned PDF. Please export it as CSV or Excel; scanned PDF/OCR is not supported yet.");
       } else {
         throw new Error("Supported formats are CSV, XLS and XLSX. PDF text extraction is being added bank by bank.");
       }
