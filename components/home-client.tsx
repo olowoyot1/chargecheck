@@ -3,7 +3,24 @@
 import { useMemo, useState } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
-import { analyseRows, rowsFromObjects, type Transaction } from "@/lib/analyzer";
+import { analyseRows, type Transaction } from "@/lib/analyzer";
+
+function rowsFromWorksheet(sheet: XLSX.WorkSheet): Record<string, unknown>[] {
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+  const normalise = (value: unknown) => String(value ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  const headerIndex = matrix.findIndex(row => {
+    const headers = row.map(normalise);
+    const matches = ["postdate", "actualtransactiondate", "date", "narration", "description", "debit", "credit"]
+      .filter(candidate => headers.some(header => header === candidate || header.startsWith(candidate)));
+    return matches.length >= 2;
+  });
+  if (headerIndex < 0) return [];
+
+  const headers = matrix[headerIndex].map((header, index) => normalise(header) || `column${index}`);
+  return matrix.slice(headerIndex + 1).map(row => Object.fromEntries(
+    headers.map((header, index) => [header, row[index] ?? ""]),
+  ));
+}
 
 export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -28,7 +45,7 @@ export default function Home() {
         const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
         const first = workbook.SheetNames[0];
         if (!first) throw new Error("The workbook has no worksheets.");
-        rows = rowsFromObjects(XLSX.utils.sheet_to_json(workbook.Sheets[first], { defval: "" }));
+        rows = rowsFromWorksheet(workbook.Sheets[first]);
       } else if (ext === "pdf") {
         const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
         const data = new Uint8Array(await file.arrayBuffer());
