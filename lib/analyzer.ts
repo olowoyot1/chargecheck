@@ -19,7 +19,11 @@ const amount = (value: unknown): number => {
 
 function pick(row: Record<string, unknown>, candidates: string[]): unknown {
   const keys = Object.keys(row);
-  const found = keys.find(key => candidates.includes(key.toLowerCase().replace(/[^a-z]/g, "")));
+  const normalisedCandidates = candidates.map(candidate => candidate.replace(/[^a-z]/g, ""));
+  const found = keys.find(key => {
+    const normalisedKey = key.toLowerCase().replace(/[^a-z]/g, "");
+    return normalisedCandidates.some(candidate => normalisedKey === candidate || normalisedKey.startsWith(candidate));
+  });
   return found ? row[found] : "";
 }
 
